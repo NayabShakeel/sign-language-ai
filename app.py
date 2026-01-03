@@ -31,7 +31,8 @@ def video_frame_callback(frame):
 webrtc_streamer(
     key="sign-detection",
     video_frame_callback=video_frame_callback,
-    # This configuration adds a fallback relay (TURN) for restricted networks
+    # async_processing keeps the camera smooth during AI detection
+    async_processing=True, 
     rtc_configuration={
         "iceServers": [
             {"urls": ["stun:stun.l.google.com:19302"]},
