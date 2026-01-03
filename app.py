@@ -13,7 +13,7 @@ else:
     pathlib.WindowsPath = pathlib.PosixPath
 
 st.set_page_config(page_title="Debug Sign AI", layout="wide", initial_sidebar_state="expanded")
-st.title("🤟 Sign Language Debugger")
+st.title("Sign Language Debugger")
 
 @st.cache_resource
 def load_yolo():
