@@ -1,51 +1,78 @@
 import streamlit as st
-from streamlit_webrtc import webrtc_streamer
 import torch
+from PIL import Image
 import numpy as np
-import av
 import pathlib
 import platform
+from streamlit_webrtc import webrtc_streamer
+import av
 
-# Path fix
+# 1. Path fix for cross-platform model loading
 if platform.system() == 'Windows':
     pathlib.PosixPath = pathlib.WindowsPath
 else:
     pathlib.WindowsPath = pathlib.PosixPath
 
-st.set_page_config(page_title="Debug Sign AI", layout="wide", initial_sidebar_state="expanded")
-st.title("Sign Language Debugger")
+st.set_page_config(page_title="Sign Language AI Submission", layout="wide")
 
+st.title("🤟 Sign Language Recognition System")
+st.write("Project Submission Mode: Static Image Testing & Real-time AI")
+
+# 2. Load the Model
 @st.cache_resource
 def load_yolo():
+    # Looks for 'best.pt' in your folder
     return torch.hub.load('ultralytics/yolov5', 'custom', path='best.pt', force_reload=True)
 
 model = load_yolo()
 
-# --- DEBUG CONTROLS ---
-st.sidebar.title("Debug Settings")
-# Set this low (0.30) to see if boxes appear at all!
-conf_val = st.sidebar.slider("Confidence Threshold", 0.1, 1.0, 0.3)
-model.conf = conf_val
+# 3. Create Tabs for different testing methods
+tab1, tab2 = st.tabs(["📁 Upload Image (Safe for Testing)", "🎥 Real-time Camera"])
 
-all_labels = list(model.names.values())
-st.sidebar.write(f"✅ Model loaded {len(all_labels)} signs.")
-st.sidebar.write(f"Signs detected: {all_labels}")
-
-def video_frame_callback(frame):
-    img = frame.to_ndarray(format="bgr24")
-    results = model(img, size=640)
+# --- TAB 1: UPLOAD IMAGE (BEST FOR YOUR SUBMISSION) ---
+with tab1:
+    st.header("Test with Downloaded Images")
+    st.write("Download any sign language photo from Google and upload it here to see the model work.")
     
-    # This will print the confidence in the 'Manage App' logs
-    if len(results.pandas().xyxy[0]) > 0:
-        print(results.pandas().xyxy[0][['name', 'confidence']])
-        
-    annotated_img = np.squeeze(results.render())
-    return av.VideoFrame.from_ndarray(annotated_img, format="bgr24")
+    conf_img = st.slider("Confidence Threshold (Image)", 0.1, 1.0, 0.5, key="conf_img")
+    uploaded_file = st.file_uploader("Choose a sign language image...", type=["jpg", "jpeg", "png"])
 
-webrtc_streamer(
-    key="debug-sign",
-    video_frame_callback=video_frame_callback,
-    async_processing=True,
-    rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
-    media_stream_constraints={"video": True, "audio": False},
-)
+    if uploaded_file is not None:
+        # Convert the file to an image
+        image = Image.open(uploaded_file)
+        st.image(image, caption='Original Uploaded Image', use_column_width=True)
+        
+        # Run AI Inference
+        st.write("AI is analyzing...")
+        model.conf = conf_img
+        results = model(image)
+        
+        # Show results
+        annotated_img = results.render()[0] # This gets the image with boxes drawn
+        st.image(annotated_img, caption='AI Prediction Result', use_column_width=True)
+        
+        # Show the detected sign meaning as text
+        if len(results.pandas().xyxy[0]) > 0:
+            for index, row in results.pandas().xyxy[0].iterrows():
+                st.success(f"Detected Sign: **{row['name']}** (Confidence: {row['confidence']:.2f})")
+        else:
+            st.warning("No sign detected. Try lowering the Confidence Threshold.")
+
+# --- TAB 2: LIVE CAMERA ---
+with tab2:
+    st.header("Real-time Camera Feed")
+    conf_cam = st.slider("Confidence Threshold (Camera)", 0.1, 1.0, 0.4, key="conf_cam")
+    
+    def video_frame_callback(frame):
+        img = frame.to_ndarray(format="bgr24")
+        model.conf = conf_cam
+        results = model(img, size=640)
+        annotated_img = np.squeeze(results.render())
+        return av.VideoFrame.from_ndarray(annotated_img, format="bgr24")
+
+    webrtc_streamer(
+        key="live-test",
+        video_frame_callback=video_frame_callback,
+        rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
+        media_stream_constraints={"video": True, "audio": False},
+    )
