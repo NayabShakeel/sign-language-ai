@@ -2,103 +2,71 @@ import streamlit as st
 import torch
 import numpy as np
 import cv2
-from PIL import Image
+from PIL import Image, ImageOps
 import pathlib
 import platform
-from streamlit_webrtc import webrtc_streamer
-import av
 
-# --- 1. SYSTEM COMPATIBILITY FIX ---
-# This ensures the model loads whether you are on Windows or Linux (Streamlit Cloud)
+# 1. POSIX Path Fix (Crucial for Streamlit Cloud)
 if platform.system() == 'Windows':
     pathlib.PosixPath = pathlib.WindowsPath
 else:
     pathlib.WindowsPath = pathlib.PosixPath
 
-st.set_page_config(
-    page_title="Sign Language AI - CEP Submission", 
-    layout="wide", 
-    initial_sidebar_state="expanded"
-)
+st.set_page_config(page_title="Sign Language AI Debugger", layout="wide")
 
-st.title("🤟 Sign Language Recognition System")
-st.markdown("---")
-
-# --- 2. THE CORRECT MODEL LOADING (STRICT) ---
+# 2. LOAD MODEL & AUTO-SYNC LABELS
 @st.cache_resource
-def load_custom_model():
-    # We use force_reload=True to clear any 'useless words' from old COCO models
+def load_yolo():
+    # Load the model directly from best.pt
     model = torch.hub.load('ultralytics/yolov5', 'custom', path='best.pt', force_reload=True)
-    
-    # Preprocessing Settings (Matching your Training/Validation)
-    model.conf = 0.50  # Minimum confidence
-    model.iou = 0.45   # Overlap threshold
-    model.multi_label = False  # Each hand gets exactly ONE meaning
     return model
 
-try:
-    model = load_custom_model()
-    class_names = list(model.names.values())
-except Exception as e:
-    st.error(f"Error loading best.pt: {e}")
-    st.stop()
+model = load_yolo()
+# GET THE ACTUAL NAMES FROM THE FILE
+model_names = model.names 
 
-# --- 3. SIDEBAR (CONTROLS) ---
-st.sidebar.title("🛠️ Control Center")
-st.sidebar.success(f"Model Loaded: {len(class_names)} Signs Detected")
+st.title("🤟 Sign Language AI: Debug Mode")
+st.sidebar.header("Model Statistics")
+st.sidebar.write(f"**Loaded Classes:** {len(model_names)}")
+st.sidebar.json(model_names) # This will show you exactly what class is 0, 1, 2...
 
-# Allow the user to manually override labels if the .pt file is showing numbers
-if st.sidebar.checkbox("Show Label Names Debug"):
-    st.sidebar.write(model.names)
+# 3. SETTINGS
+conf_val = st.sidebar.slider("Confidence Threshold", 0.05, 1.0, 0.40)
+model.conf = conf_val
 
-# Threshold Slider
-conf_threshold = st.sidebar.slider("Sensitivity (Confidence)", 0.1, 1.0, 0.5)
-model.conf = conf_threshold
+# 4. TESTING INTERFACE
+st.info("💡 Tip: If you get no results, try moving closer to the camera or using a plain background.")
 
-# --- 4. TABS: IMAGE VS LIVE CAMERA ---
-tab_img, tab_cam = st.tabs(["📸 Upload & Test (Recommended)", "🎥 Live Camera Feed"])
+uploaded_file = st.file_uploader("Upload an Image", type=['jpg', 'jpeg', 'png'])
 
-# --- TAB: IMAGE UPLOAD (EXACT PREPROCESSING) ---
-with tab_img:
-    st.subheader("Upload an image for high-precision testing")
-    file = st.file_uploader("Upload Sign Image", type=['jpg', 'png', 'jpeg'])
+if uploaded_file:
+    # Read Image
+    img = Image.open(uploaded_file).convert("RGB")
     
-    if file:
-        img = Image.open(file)
-        # Preprocessing: The model(img, size=640) call automatically handles 
-        # the letterbox resizing exactly like the validation script did!
-        results = model(img, size=640)
-        
-        # Display Results
-        rendered_img = results.render()[0]
-        st.image(rendered_img, use_column_width=True)
-        
-        # Meaning Output
-        df = results.pandas().xyxy[0]
-        if not df.empty:
-            for _, row in df.iterrows():
-                st.success(f"### Detected: {row['name']} ({row['confidence']:.2f})")
-        else:
-            st.warning("No sign detected. Try lowering the Sensitivity slider.")
-
-# --- TAB: LIVE CAMERA (REAL-TIME PREPROCESSING) ---
-with tab_cam:
-    st.subheader("Real-time webcam detection")
+    # --- IMAGE PREPROCESSING ---
+    # Sometimes auto-rotation from phones messes up the AI
+    img = ImageOps.exif_transpose(img) 
     
-    def video_frame_callback(frame):
-        img = frame.to_ndarray(format="bgr24")
-        
-        # Apply the exact same 640px preprocessing used in validation
-        results = model(img, size=640)
-        
-        # Draw the labels
-        annotated_img = np.squeeze(results.render())
-        return av.VideoFrame.from_ndarray(annotated_img, format="bgr24")
+    # Run Inference (exactly like validation)
+    results = model(img, size=640)
+    
+    # Draw Boxes
+    annotated_img = results.render()[0]
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.image(img, caption="Original Image", use_column_width=True)
+    with col2:
+        st.image(annotated_img, caption="AI Prediction", use_column_width=True)
 
-    webrtc_streamer(
-        key="sign-sign",
-        video_frame_callback=video_frame_callback,
-        async_processing=True,
-        rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
-        media_stream_constraints={"video": True, "audio": False},
-    )
+    # 5. DETAILED DATA TABLE
+    df = results.pandas().xyxy[0]
+    if not df.empty:
+        st.success("### Detection Found!")
+        st.dataframe(df[['name', 'confidence', 'xmin', 'ymin', 'xmax', 'ymax']])
+        
+        # Best prediction
+        top_sign = df.iloc[0]['name']
+        st.write(f"## Predicted Sign: **{top_sign}**")
+    else:
+        st.error("No Sign Detected. The AI is not confident enough.")
