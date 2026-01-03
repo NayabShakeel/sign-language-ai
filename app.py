@@ -31,9 +31,16 @@ def video_frame_callback(frame):
 webrtc_streamer(
     key="sign-detection",
     video_frame_callback=video_frame_callback,
-    # This STUN server is crucial for cloud deployment
+    # This configuration adds a fallback relay (TURN) for restricted networks
     rtc_configuration={
-        "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+        "iceServers": [
+            {"urls": ["stun:stun.l.google.com:19302"]},
+            {
+                "urls": ["turn:openrelay.metered.ca:443"],
+                "username": "openrelayproject",
+                "credential": "openrelayproject"
+            }
+        ]
     },
     media_stream_constraints={"video": True, "audio": False},
 )
