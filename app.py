@@ -15,7 +15,7 @@ else:
 
 st.set_page_config(page_title="Sign Language AI Submission", layout="wide")
 
-st.title("🤟 Sign Language Recognition System")
+st.title(" Sign Language Recognition System")
 st.write("Project Submission Mode: Static Image Testing & Real-time AI")
 
 # 2. Load the Model
