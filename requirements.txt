@@ -5,3 +5,9 @@ torch
 torchvision
 opencv-python-headless
 av
+tqdm
+pandas
+seaborn
+requests
+PyYAML
+scipy
